@@ -1,8 +1,9 @@
 package io.vertx.ext.web.api.contract.openapi3;
 
-import io.swagger.oas.models.OpenAPI;
-import io.swagger.parser.models.SwaggerParseResult;
-import io.swagger.parser.v3.OpenAPIV3Parser;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.parser.OpenAPIV3Parser;
+import io.swagger.v3.parser.core.models.ParseOptions;
+import io.swagger.v3.parser.core.models.SwaggerParseResult;
 import io.vertx.codegen.annotations.Fluent;
 import io.vertx.codegen.annotations.VertxGen;
 import io.vertx.core.AsyncResult;
@@ -14,9 +15,13 @@ import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.api.contract.DesignDrivenRouterFactory;
 import io.vertx.ext.web.api.contract.RouterFactoryException;
 import io.vertx.ext.web.api.contract.openapi3.impl.OpenAPI3RouterFactoryImpl;
+import io.vertx.ext.web.api.contract.openapi3.impl.OpenApi3Utils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.File;
+import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
 
 /**
  * Interface for OpenAPI3RouterFactory. <br/>
@@ -91,13 +96,16 @@ public interface OpenAPI3RouterFactory extends DesignDrivenRouterFactory<OpenAPI
     handler) {
     vertx.executeBlocking((Future<OpenAPI3RouterFactory> future) -> {
       File spec = new File(filename);
-      if (!spec.exists())
+      if (!spec.exists()) {
         future.fail(RouterFactoryException.createSpecNotExistsException(filename));
-      SwaggerParseResult swaggerParseResult = new OpenAPIV3Parser().readLocation(spec.getAbsolutePath(), null, null);
+      } else {
+        SwaggerParseResult swaggerParseResult = new OpenAPIV3Parser().readLocation(spec.getAbsolutePath(), null, OpenApi3Utils.getParseOptions());
 
-      if (swaggerParseResult.getMessages().isEmpty()) future.complete(new OpenAPI3RouterFactoryImpl(vertx, swaggerParseResult.getOpenAPI()));
-      else {
-          future.fail(RouterFactoryException.createSpecInvalidException(StringUtils.join(swaggerParseResult.getMessages(),", ")));
+        if (swaggerParseResult.getMessages().isEmpty()) {
+          future.complete(new OpenAPI3RouterFactoryImpl(vertx, swaggerParseResult.getOpenAPI()));
+        } else {
+          future.fail(RouterFactoryException.createSpecInvalidException(StringUtils.join(swaggerParseResult.getMessages(), ", ")));
+        }
       }
     }, handler);
   }
@@ -110,6 +118,20 @@ public interface OpenAPI3RouterFactory extends DesignDrivenRouterFactory<OpenAPI
    * @param handler  When specification is loaded, this handler will be called with AsyncResult<OpenAPI3RouterFactory>
    */
   static void createRouterFactoryFromURL(Vertx vertx, String url, Handler<AsyncResult<OpenAPI3RouterFactory>> handler) {
-    createRouterFactoryFromFile(vertx, url, handler);
+    vertx.executeBlocking((Future<OpenAPI3RouterFactory> future) -> {
+      try {
+        URL urlObj = new URL(url);
+
+        SwaggerParseResult swaggerParseResult = new OpenAPIV3Parser().readLocation(urlObj.toString(), null, OpenApi3Utils.getParseOptions());
+
+        if (swaggerParseResult.getMessages().isEmpty())
+          future.complete(new OpenAPI3RouterFactoryImpl(vertx, swaggerParseResult.getOpenAPI()));
+        else {
+          future.fail(RouterFactoryException.createSpecInvalidException(StringUtils.join(swaggerParseResult.getMessages(), ", ")));
+        }
+      } catch (IOException e) {
+        future.fail(RouterFactoryException.createSpecNotExistsException(url));
+      }
+    }, handler);
   }
 }
